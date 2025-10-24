@@ -1,0 +1,66 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Minimal form intake – API Gateway → Lambda → S3 with DynamoDB schema
+
+Parameters:
+  BucketName:
+    Type: String
+    Default: data-intake-proto-bucket
+  TableName:
+    Type: String
+    Default: form-schemas
+
+Globals:
+  Function:
+    Runtime: python3.11
+    Timeout: 30
+    MemorySize: 256
+
+Resources:
+  IntakeBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration: { Status: Enabled }
+
+  FormSchemaTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - { AttributeName: form_id, AttributeType: S }
+      KeySchema:
+        - { AttributeName: form_id, KeyType: HASH }
+
+  IngestFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: src/ingest
+      Handler: handler.lambda_handler
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref BucketName
+          SCHEMA_TABLE: !Ref TableName
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Ref BucketName
+        - DynamoDBReadPolicy:
+            TableName: !Ref TableName
+      Events:
+        IngestApi:
+          Type: Api
+          Properties:
+            Path: /ingest
+            Method: POST
+
+Outputs:
+  ApiUrl:
+    Description: Invoke URL
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/ingest"
+  Bucket:
+    Description: Intake bucket
+    Value: !Ref BucketName
+  SchemaTable:
+    Description: DynamoDB schema table
+    Value: !Ref TableName
